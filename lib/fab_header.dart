@@ -35,7 +35,7 @@ class FabHeader extends StatefulWidget {
     this.showDebugLines = false,
     this.onRefresh,
     this.navbarImagePath,
-    this.backgroundImageAlignment = Alignment.bottomCenter,
+    this.backgroundImageAlignment = Alignment.center,
     this.backgroundImageOverlayColor,
   }) : super(key: key) {
     assert(floatingChild.key is GlobalKey,
@@ -61,6 +61,7 @@ class _FabHeaderState extends State<FabHeader> {
   double navbarHeight = 0;
   double gapWhenChildGoesUnderNavbar = 10;
   double yPos = 0;
+  double collapsedNavbarPostionY = 0;
 
   @override
   void initState() {
@@ -92,15 +93,16 @@ class _FabHeaderState extends State<FabHeader> {
 
   void calculatePosition() {
     yPos = _scrollController?.offset ?? 0;
-    log('${yPos.abs()}');
-    // this is where the floatingChild goes under the minNavbarHeight
+    collapsedNavbarPostionY = collapsedNavbarPostionY == 0 ? navbarPositionY - yPos : collapsedNavbarPostionY;
     double trigger = maxNavbarHeight * 0.6 - yPos + gapWhenChildGoesUnderNavbar;
+    // this is where the floatingChild goes under the minNavbarHeight
+    log('\n collapsed: $collapsed \n ypos: ${yPos.abs()} \n trigger: ${trigger}\n navPostionY: $navbarPositionY \n collapsedNavbarPostionY: $collapsedNavbarPostionY  \n minHeight: $minNavbarHeight \n maxHeight: $maxNavbarHeight \n');
     if (trigger <= minNavbarHeight) {
       collapsed = true;
-      navbarPositionY = yPos;
-      navbarHeight = minNavbarHeight;
+      navbarPositionY = collapsedNavbarPostionY + yPos;
     } else {
-      navbarHeight = maxNavbarHeight - yPos * 2;
+      collapsedNavbarPostionY = 0;
+      navbarPositionY = -yPos;
       collapsed = false;
     }
   }
@@ -120,81 +122,72 @@ class _FabHeaderState extends State<FabHeader> {
               floatingHeight +
               gapWhenChildGoesUnderNavbar +
               childHeight,
-          child: Stack(
-            alignment: Alignment.topCenter,
-            children: [
-              // Navbar front
-              if (!collapsed)
-                Positioned(
-                  top: yPos,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                    height: navbarHeight,
-                    decoration: BoxDecoration(
-                      image: _buildNavbarCover(),
-                      color: widget.navbarColor,
-                    ),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(
-                        sigmaX: yPos < 0 ? yPos.abs() / 2 : -1,
-                        sigmaY: yPos < 0 ? yPos.abs() / 2 : -1,
-                      ),
-                      child: Container(
-                        color: widget.backgroundImageOverlayColor ?? Colors.black.withOpacity(0.5),
-                      ),
-                    ),
-                  ),
-                ),
-              // child
-              Positioned(
-                top: floatingHeight + maxNavbarHeight * 0.6 + gapWhenChildGoesUnderNavbar * 4,
-                child: widget.child,
-              ),
-              // Floating
-              Positioned(
-                top: maxNavbarHeight * 0.6 + gapWhenChildGoesUnderNavbar * 2,
-                child: widget.floatingChild,
-              ),
-              // Navbar behind
-              if (collapsed)
-                Positioned(
-                  top: yPos,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      image: _buildNavbarCover(),
-                      color: widget.navbarColor,
-                    ),
-                    height: minNavbarHeight,
-                    child: Container(
-                      color: widget.backgroundImageOverlayColor ?? Colors.black.withOpacity(0.5),
-                    ),
-                  ),
-                ),
-              // debug ui lines
-              widget.showDebugLines
-                  ? debug(
-                      yPos,
-                      minNavbarHeight,
-                      maxNavbarHeight,
-                    )
-                  : Container()
-            ],
+          child: Stack(alignment: Alignment.topCenter, children: _buildChildren()),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildChildren() {
+    return !collapsed
+        ? [
+            _buildNavbarCover(),
+            _buildChildUnderFloating(),
+            _buildFloatingChild(),
+            _debug(yPos, minNavbarHeight, maxNavbarHeight)
+          ]
+        : [
+            _buildChildUnderFloating(),
+            _buildFloatingChild(),
+            _buildNavbarCover(),
+            _debug(yPos, minNavbarHeight, maxNavbarHeight)
+          ];
+  }
+
+  _buildFloatingChild() {
+    return Positioned(
+      top: maxNavbarHeight * 0.6 + gapWhenChildGoesUnderNavbar * 2,
+      child: widget.floatingChild,
+    );
+  }
+
+  _buildChildUnderFloating() {
+    return Positioned(
+      top: floatingHeight + maxNavbarHeight * 0.6 + gapWhenChildGoesUnderNavbar * 4,
+      child: widget.child,
+    );
+  }
+
+  _buildNavbarCover() {
+    return Positioned(
+      top: navbarPositionY,
+      left: 0,
+      right: 0,
+      child: Container(
+        height: maxNavbarHeight,
+        decoration: BoxDecoration(
+          image: _buildNavbarDecoratingImage(),
+          color: widget.navbarColor,
+        ),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(
+            sigmaX: yPos < 0 ? yPos.abs() / 2 : -1,
+            sigmaY: yPos < 0 ? yPos.abs() / 2 : -1,
+          ),
+          child: Container(
+            color: widget.backgroundImageOverlayColor ?? Colors.black.withOpacity(0.5),
           ),
         ),
       ),
     );
   }
 
-  _buildNavbarCover() {
+  _buildNavbarDecoratingImage() {
     if (widget.navbarImagePath!.contains('http')) {
       return DecorationImage(
         image: NetworkImage(
           widget.navbarImagePath!,
         ),
-        alignment: widget.backgroundImageAlignment,
         fit: BoxFit.cover,
       );
     } else {
@@ -202,88 +195,89 @@ class _FabHeaderState extends State<FabHeader> {
         image: AssetImage(
           widget.navbarImagePath!,
         ),
-        alignment: widget.backgroundImageAlignment,
         fit: BoxFit.cover,
       );
     }
   }
-}
 
-Widget debug(
-  double yPos,
-  double minNavbarHeight,
-  double maxNavbarHeight,
-) {
-  return Stack(children: [
-    // Debug
-    Positioned(
-      left: 5,
-      top: yPos,
-      child: Container(
-        height: 100,
-        width: 5,
-        color: Colors.black,
-      ),
-    ),
-    Positioned(
-      left: 5,
-      top: yPos + 100,
-      child: Container(
-        height: 100,
-        width: 5,
-        color: Colors.deepOrange,
-      ),
-    ),
-    Positioned(
-      left: 5,
-      top: yPos + 200,
-      child: Container(
-        height: 100,
-        width: 5,
-        color: Colors.blueGrey,
-      ),
-    ),
-    Positioned(
-      left: 5,
-      top: yPos + 300,
-      child: Container(
-        height: 100,
-        width: 5,
-        color: Colors.cyan,
-      ),
-    ),
-    Positioned(
-      left: 5,
-      top: yPos + 400,
-      child: Container(
-        height: 100,
-        width: 5,
-        color: Colors.pinkAccent,
-      ),
-    ),
-    // min header
-    Positioned(
-      right: 15,
-      top: yPos,
-      child: Container(
-        height: minNavbarHeight,
-        width: 5,
-        color: Colors.pinkAccent,
-      ),
-    ),
-    // max header
-    Positioned(
-      right: 5,
-      top: yPos,
-      child: Container(
-        height: maxNavbarHeight,
-        width: 5,
-        color: Colors.pinkAccent,
-      ),
-    ),
-  ]);
+  Widget _debug(
+    double yPos,
+    double minNavbarHeight,
+    double maxNavbarHeight,
+  ) {
+    return widget.showDebugLines
+        ? Stack(children: [
+            // Debug
+            Positioned(
+              left: 5,
+              top: yPos,
+              child: Container(
+                height: 100,
+                width: 5,
+                color: Colors.black,
+              ),
+            ),
+            Positioned(
+              left: 5,
+              top: yPos + 100,
+              child: Container(
+                height: 100,
+                width: 5,
+                color: Colors.deepOrange,
+              ),
+            ),
+            Positioned(
+              left: 5,
+              top: yPos + 200,
+              child: Container(
+                height: 100,
+                width: 5,
+                color: Colors.blueGrey,
+              ),
+            ),
+            Positioned(
+              left: 5,
+              top: yPos + 300,
+              child: Container(
+                height: 100,
+                width: 5,
+                color: Colors.cyan,
+              ),
+            ),
+            Positioned(
+              left: 5,
+              top: yPos + 400,
+              child: Container(
+                height: 100,
+                width: 5,
+                color: Colors.pinkAccent,
+              ),
+            ),
+            // min header
+            Positioned(
+              right: 15,
+              top: yPos,
+              child: Container(
+                height: minNavbarHeight,
+                width: 5,
+                color: Colors.pinkAccent,
+              ),
+            ),
+            // max header
+            Positioned(
+              right: 5,
+              top: yPos,
+              child: Container(
+                height: maxNavbarHeight,
+                width: 5,
+                color: Colors.pinkAccent,
+              ),
+            ),
+          ])
+        : Container();
+  }
 }
 
 void log(String log) {
-  debugPrint('********* $log *********');
+  debugPrint('\n ********* $log *********');
 }
