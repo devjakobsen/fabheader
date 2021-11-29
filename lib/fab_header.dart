@@ -2,6 +2,12 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+enum FabStyle {
+  stickyHeader,
+  stickyHeaderParralax,
+  scrollUp,
+}
+
 class FabHeader extends StatefulWidget {
   // floatingChild is positioned on top of the navbar
   final Widget floatingChild;
@@ -10,7 +16,7 @@ class FabHeader extends StatefulWidget {
   final Widget child;
 
   // shows lines that will help visualise what is happening. Leftside shows a line per 100 px, right side small one is minNavbarHeight and the big one is maxNavbarHeight
-  final bool showDebugLines;
+  final bool debug;
 
   // callback on refresh
   final Function? onRefresh;
@@ -27,16 +33,24 @@ class FabHeader extends StatefulWidget {
   // background image overlay color
   final Color? backgroundImageOverlayColor;
 
+  // select what looks crispy? select a style you like
+  final FabStyle? style;
+
+  // add your own decoration
+  final BoxDecoration? boxDecoration;
+
   FabHeader({
     Key? key,
     required this.floatingChild,
     required this.child,
     required this.navbarColor,
-    this.showDebugLines = false,
+    this.debug = true,
     this.onRefresh,
     this.navbarImagePath,
     this.backgroundImageAlignment = Alignment.center,
     this.backgroundImageOverlayColor,
+    this.style = FabStyle.stickyHeaderParralax,
+    this.boxDecoration,
   }) : super(key: key) {
     assert(floatingChild.key is GlobalKey,
         'Add a global key on the floatingChild, like this: Container(key: GlobalKey()) - this is used to calculate the height of the floatingChild');
@@ -61,7 +75,7 @@ class _FabHeaderState extends State<FabHeader> {
   double navbarHeight = 0;
   double gapWhenChildGoesUnderNavbar = 10;
   double yPos = 0;
-  double collapsedNavbarPostionY = 0;
+  double parralaxEffect = 0;
 
   @override
   void initState() {
@@ -93,17 +107,18 @@ class _FabHeaderState extends State<FabHeader> {
 
   void calculatePosition() {
     yPos = _scrollController?.offset ?? 0;
-    collapsedNavbarPostionY = collapsedNavbarPostionY == 0 ? navbarPositionY - yPos : collapsedNavbarPostionY;
     double trigger = maxNavbarHeight * 0.6 - yPos + gapWhenChildGoesUnderNavbar;
-    // this is where the floatingChild goes under the minNavbarHeight
-    log('\n collapsed: $collapsed \n ypos: ${yPos.abs()} \n trigger: ${trigger}\n navPostionY: $navbarPositionY \n collapsedNavbarPostionY: $collapsedNavbarPostionY  \n minHeight: $minNavbarHeight \n maxHeight: $maxNavbarHeight \n');
+    if (widget.debug) {
+      log('\n collapsed: $collapsed \n ypos: ${yPos.abs()} \n trigger: $trigger\n navPostionY: $navbarPositionY  \n minHeight: $minNavbarHeight \n maxHeight: $maxNavbarHeight \n');
+    }
     if (trigger <= minNavbarHeight) {
       collapsed = true;
-      navbarPositionY = collapsedNavbarPostionY + yPos;
+      navbarPositionY =
+          widget.style == FabStyle.scrollUp ? navbarPositionY : -(maxNavbarHeight - minNavbarHeight) + yPos;
     } else {
-      collapsedNavbarPostionY = 0;
       navbarPositionY = -yPos;
       collapsed = false;
+      parralaxEffect = navbarPositionY < 0 ? navbarPositionY.abs() * 2 : 0;
     }
   }
 
@@ -115,6 +130,7 @@ class _FabHeaderState extends State<FabHeader> {
         return Future.value();
       },
       child: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
         controller: _scrollController,
         child: SizedBox(
           height: maxNavbarHeight +
@@ -122,7 +138,10 @@ class _FabHeaderState extends State<FabHeader> {
               floatingHeight +
               gapWhenChildGoesUnderNavbar +
               childHeight,
-          child: Stack(alignment: Alignment.topCenter, children: _buildChildren()),
+          child: Stack(
+            alignment: Alignment.topCenter,
+            children: _buildChildren(),
+          ),
         ),
       ),
     );
@@ -163,40 +182,51 @@ class _FabHeaderState extends State<FabHeader> {
       top: navbarPositionY,
       left: 0,
       right: 0,
-      child: Container(
-        height: maxNavbarHeight,
-        decoration: BoxDecoration(
-          image: _buildNavbarDecoratingImage(),
-          color: widget.navbarColor,
-        ),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(
-            sigmaX: yPos < 0 ? yPos.abs() / 2 : -1,
-            sigmaY: yPos < 0 ? yPos.abs() / 2 : -1,
-          ),
+      child: SizedBox(
+          height: maxNavbarHeight,
           child: Container(
-            color: widget.backgroundImageOverlayColor ?? Colors.black.withOpacity(0.5),
-          ),
-        ),
-      ),
+            margin: EdgeInsets.only(
+              top: widget.style == FabStyle.stickyHeaderParralax ? parralaxEffect : 0,
+            ),
+            decoration: widget.boxDecoration?.copyWith(
+                  image: _buildNavbarDecoratingImage(),
+                ) ??
+                BoxDecoration(
+                  image: _buildNavbarDecoratingImage(),
+                  color: widget.navbarColor,
+                ),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(
+                sigmaX: yPos < 0 ? yPos.abs() / 2 : -1,
+                sigmaY: yPos < 0 ? yPos.abs() / 2 : -1,
+              ),
+              child: Container(
+                color: widget.backgroundImageOverlayColor ?? Colors.black.withOpacity(0.5),
+              ),
+            ),
+          )),
     );
   }
 
   _buildNavbarDecoratingImage() {
-    if (widget.navbarImagePath!.contains('http')) {
-      return DecorationImage(
-        image: NetworkImage(
-          widget.navbarImagePath!,
-        ),
-        fit: BoxFit.cover,
-      );
+    if (widget.navbarImagePath != null) {
+      if (widget.navbarImagePath!.contains('http')) {
+        return DecorationImage(
+          image: NetworkImage(
+            widget.navbarImagePath!,
+          ),
+          fit: BoxFit.cover,
+        );
+      } else {
+        return DecorationImage(
+          image: AssetImage(
+            widget.navbarImagePath!,
+          ),
+          fit: BoxFit.cover,
+        );
+      }
     } else {
-      return DecorationImage(
-        image: AssetImage(
-          widget.navbarImagePath!,
-        ),
-        fit: BoxFit.cover,
-      );
+      return null;
     }
   }
 
@@ -205,7 +235,7 @@ class _FabHeaderState extends State<FabHeader> {
     double minNavbarHeight,
     double maxNavbarHeight,
   ) {
-    return widget.showDebugLines
+    return widget.debug
         ? Stack(children: [
             // Debug
             Positioned(
